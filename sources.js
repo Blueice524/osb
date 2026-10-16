@@ -1,5 +1,6 @@
 export const studySources=[
  {title:'CrossExamined',url:'https://www.youtube.com/@CrossExamined'},
+ {title:'BibleProject',url:'https://www.youtube.com/@bibleproject'},
  {title:'Best Commentaries',url:'https://bestcommentaries.com/'},
  {title:'StudyLight',url:'https://www.studylight.org/'},
  {title:'福音聯盟中文',url:'https://www.tgcchinese.org/'},
@@ -10,7 +11,7 @@ export const searchDomains=['youtube.com','bestcommentaries.com','studylight.org
 export function allowedStudyURL(value){
  try{const u=new URL(value),host=u.hostname.replace(/^www\./,'');
   if(u.protocol!=='https:'||u.username||u.password||u.port||!searchDomains.includes(host))return false;
-  if(host==='youtube.com')return /^\/@CrossExamined(?:\/|$)/i.test(u.pathname)||(u.pathname==='/watch'&&/^[\w-]{11}$/.test(u.searchParams.get('v')||''));
+  if(host==='youtube.com')return /^\/@(?:CrossExamined|bibleproject)(?:\/|$)/i.test(u.pathname)||(u.pathname==='/watch'&&/^[\w-]{11}$/.test(u.searchParams.get('v')||''));
   if(host==='churchinmarlboro.org')return /^\/Biblestudy(?:\/|$)/i.test(u.pathname);
   return true;
  }catch{return false;}

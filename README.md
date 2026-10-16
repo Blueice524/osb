@@ -15,15 +15,16 @@
 ## 指定來源
 
 - https://www.youtube.com/@CrossExamined
+- https://www.youtube.com/@bibleproject
 - https://bestcommentaries.com/
 - https://www.studylight.org/
 - https://www.tgcchinese.org/
 - https://www.ccbiblestudy.org/index-T.htm
 - https://www.churchinmarlboro.org/Biblestudy//Index.htm
 
-後端先使用 OpenAI Responses 的 web_search（限定上述網域）取得實際引用，再以核准來源整合摘要。回覆必須有實際搜尋紀錄與引用，並通過來源白名單；否則回傳不足資料。來源搜尋不能保證所有頁面或字幕都可被搜尋引擎存取，也不代表每次都能查遍六站。
+後端先使用 OpenAI Responses 的 web_search（限定上述網域）取得實際引用，再以核准來源整合摘要。回覆必須有實際搜尋紀錄與引用，並通過來源白名單；否則回傳不足資料。來源搜尋不能保證所有頁面或字幕都可被搜尋引擎存取，也不代表每次都能查遍七個來源。
 
-Best Commentaries 的書評目錄不能單獨支持章節解釋。YouTube watch 引用會查核 oEmbed 作者是否為 @CrossExamined，無法確認作者時不採用。只有標題而沒有文字／字幕內容的影片不能當作經文背景證據。AI 摘要仍須對照原文查核。
+Best Commentaries 的書評目錄不能單獨支持章節解釋。YouTube watch 引用會查核 oEmbed 作者是否為 @CrossExamined 或 @bibleproject，無法確認作者時不採用。只有標題而沒有文字／字幕內容的影片不能當作經文背景證據。AI 摘要仍須對照原文查核。
 
 ## 開發與測試
 
