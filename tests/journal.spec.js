@@ -169,3 +169,21 @@ test('invalid shared payloads do not write to the recipient journal',async({page
  await page.goto('/#shared=g1.invalid');await expect(page.locator('#shared')).toBeVisible();await expect(page.locator('#shared-meta')).toContainText('無法開啟這份分享');expect(await page.evaluate(()=>localStorage.getItem('still-journal-v1'))).toBeNull();
  await page.locator('#exit-shared').click();await expect(page.getByLabel('個人心得／領受')).toBeVisible();
 });
+
+for(const reading of ['matthew-6','personal-GEN-1']) {
+ test(`blank fields remain empty in shared links and downloaded pages for ${reading}`,async({page,context,browser})=>{
+  await context.grantPermissions(['clipboard-read','clipboard-write']);await page.goto(`/?reading=${reading}`);
+  await page.getByLabel('個人心得／領受').fill('這是我自己填寫的心得');await page.getByLabel('主題標籤').fill('（未填寫）');
+  const link=await copyFullShare(page);const friend=await browser.newPage();await friend.goto(link);await expect(friend.locator('#shared')).toBeVisible();
+  const right=friend.locator('#shared-content > div').nth(1);
+  const blankLabels=['觀察','理解／查考','今天的小行動','我的禱告','還想問的問題','Mark','經文探討紀錄'];
+  for(const label of blankLabels){const section=right.locator('section').filter({has:friend.getByRole('heading',{name:label,exact:true})});await expect(section.locator('p')).toHaveText('');}
+  await expect(right).toContainText('這是我自己填寫的心得');
+  await expect(right.locator('section').filter({has:friend.getByRole('heading',{name:'主題標籤',exact:true})}).locator('p')).toHaveText('（未填寫）');
+  for(const hint of ['經文裡，哪個細節讓你停下來？','你如何理解這段經文？','用自己的話，和神說說。'])await expect(right).not.toContainText(hint);
+  await page.getByRole('button',{name:'分享讀經頁'}).click();const pending=page.waitForEvent('download');await page.getByRole('button',{name:'下載完整頁面'}).click();const path=await (await pending).path();
+  const fs=await import('node:fs/promises');const html=await fs.readFile(path,'utf8');await friend.setContent(html);
+  for(const label of blankLabels)await expect(friend.locator('.columns > div').nth(1).locator('section').filter({has:friend.getByRole('heading',{name:label,exact:true})}).locator('p')).toHaveText('');
+  await friend.close();
+ });
+}
