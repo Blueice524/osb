@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: still-bible-study
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: STUDY_API_KEY
+        sync: false
+      - key: STUDY_MODEL
+        value: gpt-4.1
+      - key: STUDY_HOURLY_LIMIT
+        value: 60

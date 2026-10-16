@@ -94,45 +94,6 @@ test('failed save prevents changing personal progress and keeps the unsaved refl
  await expect(page.locator('#book-select')).toHaveValue('GEN');await expect(page.locator('#personal-passage')).toHaveText('創世記 1 章');await expect(page.getByLabel('個人心得／領受')).toHaveValue('這段未儲存的文字需要保留');await expect(page.locator('#session-state')).toContainText('尚未儲存');await expect(page.locator('#toast')).toContainText('儲存失敗');
 });
 
-for (const [view,reading,passage] of [['daily','matthew-6','馬太福音 6:25–34'],['personal','personal-GEN-1','創世記 1 章']]) {
- test(`${view} GPT handoff copies only relevant context, saves replies, searches and restores backups`,async({page,context})=>{
-  const target='https://chatgpt.com/g/g-study-test';
-  await context.grantPermissions(['clipboard-read','clipboard-write']);
-  await page.route('**/gpt-config.json',route=>route.fulfill({json:{gpt_url:target}}));
-  await context.route('https://chatgpt.com/**',route=>route.fulfill({body:'Test GPT destination'}));
-  await page.goto(`/?reading=${reading}`);
-  await page.getByLabel('個人心得／領受').fill('不要把這段私人心得傳給GPT');await page.getByLabel('我的禱告').fill('私人的禱告');
-  await page.getByLabel('還想問的問題').fill('如何理解這章的上下文？');
-  const popupPromise=page.waitForEvent('popup');await page.getByRole('button',{name:'詢問',exact:true}).click();const popup=await popupPromise;await popup.waitForLoadState();expect(popup.url()).toBe(target);await popup.close();
-  await expect(page.locator('#discussion-status')).toContainText('問題已複製');
-  let prompt=await page.evaluate(()=>navigator.clipboard.readText());expect(prompt).toContain(passage);expect(prompt).toContain('如何理解這章的上下文');expect(prompt).not.toContain('私人心得');expect(prompt).not.toContain('私人的禱告');
-  await page.getByLabel('貼上 GPT 回覆').fill('先看文體與上下文，不要脫離段落。<script>alert(1)</script>');await page.getByRole('button',{name:'儲存回覆'}).click();
-  await page.reload();await expect(page.locator('#discussion-thread')).toContainText('先看文體與上下文');
-  await page.getByLabel('還想問的問題').fill('那應該怎樣應用？');const secondPopup=page.waitForEvent('popup');await page.getByRole('button',{name:'詢問',exact:true}).click();await (await secondPopup).close();
-  await expect(page.locator('#discussion-status')).toContainText('問題已複製');prompt=await page.evaluate(()=>navigator.clipboard.readText());expect(prompt).toContain('先看文體與上下文');expect(prompt).toContain('那應該怎樣應用');
-  await page.getByLabel('貼上 GPT 回覆').fill('尚未確認的回覆草稿');await page.getByRole('button',{name:'我的日記',exact:true}).click();
-  await page.locator('#search').fill('文體與上下文');await expect(page.locator('.entry')).toHaveCount(1);await expect(page.locator('.entry')).toContainText('GPT 回覆（由你貼回）');
-  const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'匯出備份'}).click();const path=await (await downloadPromise).path();
-  await page.evaluate(()=>localStorage.clear());await page.reload();await page.getByRole('button',{name:'我的日記',exact:true}).click();await page.locator('#import').setInputFiles(path);await page.locator('#search').fill('文體與上下文');await expect(page.locator('.entry')).toContainText('先看文體與上下文');
-  await page.getByRole('button',{name:view==='daily'?'每日靈糧':'個人讀經進度',exact:true}).click();await expect(page.getByLabel('貼上 GPT 回覆')).toHaveValue('尚未確認的回覆草稿');
- });
-}
-test('plugin identifiers use an explicitly manual ChatGPT handoff rather than a fabricated GPT URL',async({page})=>{
- await page.route('**/gpt-config.json',route=>route.fulfill({json:{gpt_url:'plugin://gpt-f875f4e5f25b9633318d3546b0abdb7c@openai-curated-remote'}}));
- await page.goto('/');await expect(page.locator('#discussion-notice')).toContainText('自行選用');await expect(page.getByRole('button',{name:'詢問',exact:true})).toBeEnabled();await expect(page.locator('#gpt-direct-link')).toHaveAttribute('href','https://chatgpt.com/');
- await page.getByLabel('還想問的問題').fill('未連接仍可存下這個問題');await page.getByRole('button',{name:'儲存今天的日記'}).click();await page.reload();await expect(page.getByLabel('還想問的問題')).toHaveValue('未連接仍可存下這個問題');
-});
-
-test('manual handoff shows the prompt when clipboard access is denied',async({page,context})=>{
- await page.route('**/gpt-config.json',route=>route.fulfill({json:{gpt_url:''}}));
- await context.route('https://chatgpt.com/**',route=>route.fulfill({body:'Test ChatGPT destination'}));
- await page.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:async()=>{throw new Error('denied');}}});});
- await page.goto('/?reading=personal-REV-22');await page.getByLabel('還想問的問題').fill('這一章如何帶出盼望？');
- const popupPromise=page.waitForEvent('popup');await page.getByRole('button',{name:'詢問',exact:true}).click();const popup=await popupPromise;await popup.waitForLoadState();expect(popup.url()).toBe('https://chatgpt.com/');await popup.close();
- await expect(page.locator('#discussion-status')).toContainText('請手動複製');await expect(page.locator('#gpt-prompt')).toHaveValue(/啟示錄 22 章/);await expect(page.locator('#gpt-prompt')).toHaveValue(/這一章如何帶出盼望/);
- await page.reload();await expect(page.locator('#discussion-thread')).toContainText('這一章如何帶出盼望');
-});
-
 for(const reading of ['matthew-6','personal-PSA-150']) {
  test(`full snapshot shares every field, drafts and discussion for ${reading} without overwriting the recipient`,async({page,context,browser})=>{
   await context.grantPermissions(['clipboard-read','clipboard-write']);await page.goto(`/?reading=${reading}`);
@@ -188,35 +149,35 @@ for(const reading of ['matthew-6','personal-GEN-1']) {
  });
 }
 
-test('personal chapter backgrounds show only the selected chapter, one or two sourced paragraphs, and share the summary',async({page,context,browser})=>{
- await context.grantPermissions(['clipboard-read','clipboard-write']);
- await page.route('**/chapter-backgrounds.json',route=>route.fulfill({json:{version:1,chapters:{'GEN.1':{paragraphs:['測試資料：創世記第一章背景摘要。','測試資料：第一章的文學脈絡。'],source:'測試背景資料，第 1 頁'},'GEN.2':{paragraphs:['測試資料：創世記第二章獨立背景。'],source:'測試背景資料，第 2 頁'}}}}));
- await page.goto('/?reading=personal-GEN-1');await expect(page.locator('#context p')).toHaveCount(2);await expect(page.locator('#context')).toContainText('第一章的文學脈絡');await expect(page.locator('#context-source')).toHaveText('資料來源：測試背景資料，第 1 頁');
- await page.getByLabel('個人心得／領受').fill('背景載入不應該改動這段心得');
- await page.locator('#chapter-select').selectOption('2');await expect(page.locator('#context p')).toHaveCount(1);await expect(page.locator('#context')).toHaveText('測試資料：創世記第二章獨立背景。');await expect(page.locator('#context')).not.toContainText('第一章');
- const link=await copyFullShare(page);const friend=await browser.newPage();await friend.goto(link);await expect(friend.locator('#shared-content')).toContainText('創世記第二章獨立背景');await expect(friend.locator('#shared-content')).toContainText('測試背景資料，第 2 頁');await friend.close();
- await page.locator('#chapter-select').selectOption('3');await expect(page.locator('#context')).toBeEmpty();await expect(page.locator('#context-source')).toBeHidden();await expect(page.locator('#context-status')).toHaveText('本章背景資料尚未提供。');
- await page.getByRole('button',{name:'每日靈糧',exact:true}).click();await expect(page.locator('#context')).not.toBeEmpty();await expect(page.locator('#context-status')).toBeHidden();
-});
 
-test('delayed background loading preserves notes and never inserts an earlier chapter into the latest selection',async({page})=>{
+const citedSource={title:'Test-only StudyLight commentary',url:'https://www.studylight.org/commentaries/eng/test/genesis-1.html'};
+const answerResult=paragraphs=>({paragraphs,sources:[citedSource],fetchedAt:new Date().toISOString()});
+async function serviceFixture(page,handler){await page.route('**/study-service.json',route=>route.fulfill({json:{apiBase:'/api'}}));await page.route('**/api/study',handler);}
+for(const reading of ['matthew-6','personal-GEN-1']){
+ test(`automatic research answers below the question, preserves sources, exports and shares for ${reading}`,async({page,context,browser})=>{
+  await context.grantPermissions(['clipboard-read','clipboard-write']);const requests=[];
+  await serviceFixture(page,route=>{const body=route.request().postDataJSON();requests.push(body);return route.fulfill({json:answerResult(body.mode==='background'?['測試背景第一段。','測試背景第二段。']:['測試查考答案：先了解上下文，再辨別應用。<script>alert(1)</script>'])});});
+  await page.goto(`/?reading=${reading}`);await expect(page.locator('#context p')).toHaveCount(2);await expect(page.locator('#context-source a')).toHaveAttribute('href',citedSource.url);await expect(page.locator('#context-reference a')).toHaveCount(6);
+  await page.getByLabel('個人心得／領受').fill('不傳送的個人心得');await page.getByLabel('我的禱告').fill('不傳送的私人禱告');await page.getByLabel('還想問的問題').fill('這章的上下文如何影響理解？');await page.getByRole('button',{name:'詢問',exact:true}).click();
+  await expect(page.locator('#discussion-thread')).toContainText('測試查考答案');await expect(page.locator('#discussion-thread a')).toHaveAttribute('href',citedSource.url);expect(requests.find(r=>r.mode==='question').readingId).toBe(reading);expect(JSON.stringify(requests)).not.toContain('不傳送的');
+  await page.reload();await expect(page.locator('#discussion-thread')).toContainText('測試查考答案');
+  await page.getByLabel('還想問的問題').fill('那要如何具體實踐？');await page.getByRole('button',{name:'詢問',exact:true}).click();await expect(page.locator('.discussion-turn')).toHaveCount(2);await expect(page.getByRole('button',{name:'詢問',exact:true})).toBeEnabled();expect(requests.filter(r=>r.mode==='question').at(-1).history[0].answer).toContain('測試查考答案');
+  const record=JSON.parse(await page.evaluate(()=>localStorage.getItem('still-journal-v1'))).find(e=>e.readingId===reading);expect(record.discussion[0].sources[0].url).toBe(citedSource.url);expect(record.background.paragraphs).toHaveLength(2);
+  const link=await copyFullShare(page);const friend=await browser.newPage();await friend.goto(link);await expect(friend.locator('#shared-content')).toContainText('測試查考答案');await expect(friend.locator('#shared-content a').filter({hasText:citedSource.title}).first()).toHaveAttribute('href',citedSource.url);await friend.close();
+  await page.getByRole('button',{name:'我的日記',exact:true}).click();await page.locator('#search').fill('測試查考答案');await expect(page.locator('.entry')).toHaveCount(1);
+  const pending=page.waitForEvent('download');await page.getByRole('button',{name:'匯出備份'}).click();const path=await (await pending).path();await page.evaluate(()=>localStorage.clear());await page.reload();await page.getByRole('button',{name:'我的日記',exact:true}).click();await page.locator('#import').setInputFiles(path);await expect(page.locator('.entry')).toContainText('測試查考答案');const restored=JSON.parse(await page.evaluate(()=>localStorage.getItem('still-journal-v1')));expect(restored[0].discussion[0].sources[0].url).toBe(citedSource.url);
+ });
+}
+
+test('changing chapters during research never mixes background, answers, or new unsaved notes',async({page})=>{
  let release;const gate=new Promise(resolve=>release=resolve);
- await page.route('**/chapter-backgrounds.json',async route=>{await gate;await route.fulfill({json:{version:1,chapters:{'GEN.1':{paragraphs:['第一章背景'],source:'測試來源'},'GEN.2':{paragraphs:['第二章背景'],source:'測試來源'}}}});});
- await page.goto('/?reading=personal-GEN-1');await expect(page.locator('#context-status')).toContainText('查找');await page.getByLabel('個人心得／領受').fill('等待時輸入的第一章心得');await page.locator('#chapter-select').selectOption('2');await page.getByLabel('個人心得／領受').fill('等待時輸入的第二章心得');release();
- await expect(page.locator('#context')).toHaveText('第二章背景');await expect(page.getByLabel('個人心得／領受')).toHaveValue('等待時輸入的第二章心得');
- await page.locator('#chapter-select').selectOption('1');await expect(page.getByLabel('個人心得／領受')).toHaveValue('等待時輸入的第一章心得');await expect(page.locator('#context')).toHaveText('第一章背景');
+ await serviceFixture(page,async route=>{const body=route.request().postDataJSON();if(body.readingId==='personal-GEN-1')await gate;return route.fulfill({json:answerResult([body.mode==='background'?`${body.readingId} 的測試背景`:`${body.readingId} 的測試回答`])});});
+ await page.goto('/?reading=personal-GEN-1');await page.getByLabel('個人心得／領受').fill('第一章心得');await page.getByLabel('還想問的問題').fill('第一章的問題');await page.getByRole('button',{name:'詢問',exact:true}).click();await expect(page.getByRole('button',{name:'查考中…'})).toBeDisabled();
+ await page.locator('#chapter-select').selectOption('2');await page.getByLabel('個人心得／領受').fill('第二章尚未儲存的心得');release();await expect(page.locator('#context')).toHaveText('personal-GEN-2 的測試背景');await expect(page.locator('#discussion-thread')).not.toContainText('第一章');await expect(page.getByLabel('個人心得／領受')).toHaveValue('第二章尚未儲存的心得');
+ await page.locator('#chapter-select').selectOption('1');await expect(page.locator('#discussion-thread')).toContainText('personal-GEN-1 的測試回答');await expect(page.getByLabel('個人心得／領受')).toHaveValue('第一章心得');
 });
 
-test('unavailable or invalid background data never masquerades as chapter commentary',async({page})=>{
- await page.route('**/chapter-backgrounds.json',route=>route.fulfill({json:{version:1,chapters:{'GEN.1':{paragraphs:['一','二','三'],source:'測試來源'}}}}));
- await page.goto('/?reading=personal-GEN-1');await expect(page.locator('#context')).toBeEmpty();await expect(page.locator('#context-status')).toContainText('暫時無法載入');await expect(page.locator('#context-source')).toBeHidden();
-});
-
-test('personal backgrounds provide the requested FHL source link and preserve it in shares',async({page,context,browser})=>{
- await context.grantPermissions(['clipboard-read','clipboard-write']);
- const sourceURL='https://bible.fhl.net/index.html';
- await page.route('**/chapter-backgrounds.json',route=>route.fulfill({json:{version:1,chapters:{'GEN.1':{paragraphs:['僅供測試的背景摘要，不是信望愛原文。'],source:'測試用來源標註',sourceURL}}}}));
- await page.goto('/?reading=personal-GEN-1');await expect(page.locator('#context')).toContainText('僅供測試');await expect(page.locator('#context-source-link')).toHaveAttribute('href',sourceURL);await expect(page.locator('#context-source-link')).toHaveText('出處：信望愛聖經工具 · 閱讀原文 ↗');
- const link=await copyFullShare(page);const friend=await browser.newPage();await friend.goto(link);await expect(friend.locator('#shared-content a').filter({hasText:'出處：信望愛聖經工具'})).toHaveAttribute('href',sourceURL);await friend.close();
- await page.locator('#chapter-select').selectOption('2');await expect(page.locator('#context')).toBeEmpty();await expect(page.locator('#context-source-link')).toHaveText('參考網站：信望愛聖經工具 ↗');
+test('missing service, provider failures and uncited output do not become invented answers',async({page})=>{
+ await page.goto('/?reading=personal-GEN-1');await expect(page.locator('#context-status')).toContainText('尚未連接');await page.getByLabel('還想問的問題').fill('仍需保留的疑問');await page.getByRole('button',{name:'詢問',exact:true}).click();await expect(page.locator('#discussion-status')).toContainText('尚未連接');await expect(page.locator('#discussion-thread')).toContainText('仍需保留的疑問');await expect(page.locator('#discussion-thread')).not.toContainText('查考回覆');
+ await serviceFixture(page,route=>route.fulfill({json:{paragraphs:['沒有來源的假答案'],sources:[],fetchedAt:new Date().toISOString()}}));await page.reload();await page.getByRole('button',{name:'詢問',exact:true}).click();await expect(page.locator('#discussion-status')).toContainText('缺少有效內容或出處');await expect(page.locator('#discussion-thread')).not.toContainText('沒有來源的假答案');
 });

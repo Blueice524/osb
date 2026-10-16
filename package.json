@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build --base=./",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "playwright test"
+    "test": "playwright test",
+    "start": "node --use-env-proxy server/server.js",
+    "test:server": "node --test server/*.test.js"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
