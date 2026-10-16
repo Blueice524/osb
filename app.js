@@ -1,4 +1,5 @@
 import { readings } from './readings.js';
+import { snapshotLink, readSnapshot, snapshotDocument } from './share.js';
 import { books, personalReading } from './bible.js';
 import { gptURL, configLoaded, loadGPTConfig, validDiscussion, discussionPrompt } from './gpt-bridge.js';
 const resolveReading = id => readings.find(r=>r.id===id) || personalReading(id);
@@ -109,6 +110,7 @@ async function askQuestion() {
  if(entryKey(baseEntry())===identity)renderDiscussion();
 }
 function showView(view) {
+ if(location.hash.startsWith('#shared=')){const url=new URL(location.href);url.hash='';history.replaceState(null,'',url);$('#share').hidden=false;}
  if(dirty && !storeEntry(collect()))return;
  const readingView=view==='today'||view==='personal';
  activeView=view;
@@ -176,8 +178,42 @@ $('#ask-question').onclick=askQuestion;
 $('#journal-form').onsubmit=e=>{e.preventDefault();save();};$('#journal-form').oninput=()=>{dirty=true;updateMeta();};$('#complete').onclick=()=>save(true);
 $('#send-command').onclick=command;$('#command').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();command();}};
  document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>showView(b.dataset.view));$('#search').oninput=renderEntries;
-$('#share').onclick=async()=>{const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('reading',selected.id);try{if(navigator.share)await navigator.share({title:`靜讀｜${selected.ref}`,url:url.href});else{await navigator.clipboard.writeText(url.href);toast('讀經連結已複製，不含你的私人筆記。');}}catch(e){if(e.name!=='AbortError')prompt('複製讀經連結（不含筆記）：',url.href);}};
+let shareSnapshot=null,shareURL='',shareGeneration=0;
+$('#share').onclick=async()=>{
+ const generation=++shareGeneration;
+ shareSnapshot={version:1,reading:{...selected},entry:collect(),day:current()?countDays():countDays()+1,commandDraft:$('#command').value,gptPrompt:$('#gpt-handoff').hidden?'':$('#gpt-prompt').value};
+ shareURL='';$('#share-url').value='';$('#share-url-label').hidden=true;$('#copy-share').disabled=true;$('#send-share').hidden=true;$('#share-state').textContent='正在準備完整內容…';$('#share-dialog').showModal();
+ try {
+  const url=validSharedSnapshot(shareSnapshot)?await snapshotLink(shareSnapshot,location.href):null;if(generation!==shareGeneration)return;
+  if(!url){$('#share-state').textContent='內容較多，完整連結可能被通訊軟體截斷。請使用「下載完整頁面」分享，所有內容都會保留。';return;}
+  shareURL=url;$('#share-url').value=url;$('#share-url-label').hidden=false;$('#copy-share').disabled=false;$('#send-share').hidden=typeof navigator.share!=='function';$('#share-state').textContent='完整內容已準備好，請確認願意分享上述所有欄位後複製或傳送。';
+ }catch{$('#share-state').textContent='目前無法產生連結，請使用「下載完整頁面」，仍會包含所有欄位。';}
+};
+$('#close-share').onclick=()=>$('#share-dialog').close();
+$('#copy-share').onclick=async()=>{try{await navigator.clipboard.writeText(shareURL);$('#share-state').textContent='完整讀經連結已複製，包含目前頁面的全部筆記與問答。';}catch{$('#share-state').textContent='無法自動複製，請選取上方完整連結手動複製。';$('#share-url').focus();$('#share-url').select();}};
+$('#send-share').onclick=async()=>{try{await navigator.share({title:`靜讀｜${shareSnapshot.reading.ref}`,url:shareURL});}catch(error){if(error.name!=='AbortError')$('#share-state').textContent='無法開啟系統分享，請改用複製連結或下載完整頁面。';}};
+$('#download-share').onclick=()=>{
+ if(!shareSnapshot)return;
+ const blob=new Blob([snapshotDocument(shareSnapshot)],{type:'text/html;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download=`still-shared-${shareSnapshot.entry.date}.html`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('#share-state').textContent='完整頁面已下載，可將 HTML 檔案傳給朋友，使用瀏覽器開啟。';
+};
+function validSharedSnapshot(snapshot) {
+ const r=snapshot?.reading;
+ return snapshot?.version===1 && Number.isInteger(snapshot.day) && snapshot.day>=1 && snapshot.day<=10001 && validEntries([snapshot.entry]) && r?.id===snapshot.entry.readingId && ['ref','theme','tag','summary','context','interpretation','prayer','verse'].every(field=>typeof r[field]==='string'&&r[field].length<=100000) && r.verse===resolveReading(r.id).verse && Array.isArray(r.questions) && r.questions.length===2 && r.questions.every(q=>typeof q==='string'&&q.length<=100000) && ['commandDraft','gptPrompt'].every(field=>typeof snapshot[field]==='string'&&snapshot[field].length<=100000);
+}
+async function openSharedSnapshot() {
+ if(!location.hash.startsWith('#shared='))return;
+ document.querySelectorAll('.view').forEach(e=>e.hidden=e.id!=='shared');document.querySelectorAll('.nav').forEach(e=>e.classList.remove('active'));$('#share').hidden=true;
+ try {
+  const snapshot=await readSnapshot(location.hash);if(!validSharedSnapshot(snapshot))throw new Error('invalid snapshot');
+  $('#shared-meta').textContent=`${snapshot.entry.date} · Day ${snapshot.day} · ${snapshot.entry.status==='completed'?'已完成':'進行中'} · ${personalReading(snapshot.entry.readingId)?'個人讀經進度':'每日靈糧'}`;
+  // Parse only our own escaped, script-free document and adopt its content.
+  const documentSnapshot=new DOMParser().parseFromString(snapshotDocument(snapshot),'text/html');
+  $('#shared-content').replaceChildren(...[...documentSnapshot.querySelector('.columns').children].map(node=>document.importNode(node,true)));
+ }catch{$('#shared-meta').textContent='無法開啟這份分享：連結可能不完整、內容過大或瀏覽器不支援。請向分享者索取完整頁面檔案。';$('#shared-content').replaceChildren();}
+}
+$('#exit-shared').onclick=()=>{const url=new URL(location.href);url.hash='';history.replaceState(null,'',url);$('#share').hidden=false;showView(personalReading(selected.id)?'personal':'today');};
 $('#export').onclick=()=>{const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),entries},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`still-journal-${today}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('已產生備份檔案，請妥善保存。');};
 $('#import').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>10*1024*1024)throw new Error();const data=JSON.parse(await file.text());if(data.version!==1||!validEntries(data.entries))throw new Error();const existing=new Set(entries.map(x=>`${x.date}/${x.readingId}`));const additions=data.entries.filter(x=>!existing.has(`${x.date}/${x.readingId}`));const unique=new Map(additions.map(x=>[`${x.date}/${x.readingId}`,{date:x.date,readingId:x.readingId,status:x.status,marks:[...x.marks],...(x.discussion?{discussion:x.discussion.map(turn=>({id:turn.id,question:turn.question,answer:turn.answer,status:turn.status,createdAt:turn.createdAt}))}:{}),...Object.fromEntries(fieldNames.map(f=>[f,x[f]]))}]));if(persist([...entries,...unique.values()])){renderEntries();renderReading();toast(`已匯入 ${unique.size} 篇日記，現有同日同經文的筆記保留原樣。`);}}catch{toast('匯入失敗：請選擇有效的靜讀 JSON 備份（上限 10 MB）。');}e.target.value='';};
 $('#about').onclick=()=>$('#about-dialog').showModal();$('#close-about').onclick=()=>$('#about-dialog').close();window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
-showView(activeView);loadGPTConfig().then(renderDiscussion);if(loadError)toast('現有筆記無法讀取或瀏覽器不允許儲存。為保護資料，已停止寫入；請檢查瀏覽器儲存設定。');
+if(location.hash.startsWith('#shared='))openSharedSnapshot();else showView(activeView);loadGPTConfig().then(renderDiscussion);if(loadError)toast('現有筆記無法讀取或瀏覽器不允許儲存。為保護資料，已停止寫入；請檢查瀏覽器儲存設定。');

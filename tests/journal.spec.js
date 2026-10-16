@@ -1,5 +1,14 @@
 import {test,expect} from '@playwright/test';
-test('journal saves, persists, marks, completes and searches without leaking in share URL',async({page,context})=>{
+async function copyFullShare(page) {
+ await page.getByRole('button',{name:'分享讀經頁'}).click();
+ await expect(page.getByRole('button',{name:'複製完整連結'})).toBeEnabled();
+ await page.getByRole('button',{name:'複製完整連結'}).click();
+ const url=await page.evaluate(()=>navigator.clipboard.readText());
+ await page.locator('#close-share').click();
+ return url;
+}
+
+test('journal saves, persists, marks, completes, searches and creates a full share snapshot',async({page,context})=>{
  await context.grantPermissions(['clipboard-read','clipboard-write']);
  await page.goto('/?reading=matthew-6');
  await page.getByLabel('個人心得／領受').fill('今天練習把焦慮交給神 <script>alert(1)</script>');
@@ -15,9 +24,8 @@ test('journal saves, persists, marks, completes and searches without leaking in 
  await page.getByRole('button',{name:'我的日記',exact:true}).click();
  await page.locator('#search').fill('焦慮');await expect(page.locator('.entry')).toHaveCount(1);
  await page.locator('#search').fill('不存在的字');await expect(page.locator('.entry')).toHaveCount(0);
- await page.getByRole('button',{name:'分享讀經頁'}).click();
- const clipboard=await page.evaluate(()=>navigator.clipboard.readText());
- expect(clipboard).toContain('reading=matthew-6');expect(clipboard).not.toContain('焦慮');
+ const clipboard=await copyFullShare(page);
+ expect(clipboard).toContain('reading=matthew-6#shared=');
  const other=await context.browser().newContext();const otherPage=await other.newPage();await otherPage.goto('http://127.0.0.1:5173/?reading=matthew-6');await expect(otherPage.getByLabel('個人心得／領受')).toHaveValue('');await other.close();
 });
 test('export/import restores notes and malformed backup is rejected',async({page})=>{
@@ -69,12 +77,12 @@ test('personal reading covers the full canon and preserves separate progress and
  await page.evaluate(()=>localStorage.clear());await page.reload();await page.getByRole('button',{name:'我的日記',exact:true}).click();await page.locator('#import').setInputFiles(path);await page.locator('#search').fill('詩篇 150');await expect(page.locator('.entry')).toContainText('我觀察到讚美的邀請');
 });
 
-test('legacy journal records remain readable, personal links share only the selected chapter, mobile fits',async({page,context})=>{
+test('legacy journal records remain readable, personal sharing and mobile layout work',async({page,context})=>{
  await context.grantPermissions(['clipboard-read','clipboard-write']);
  await page.addInitScript(()=>{if(!localStorage.getItem('still-journal-v1'))localStorage.setItem('still-journal-v1',JSON.stringify([{date:'2026-01-01',readingId:'matthew-6',status:'completed',marks:['舊標記'],observation:'舊觀察',interpretation:'',reflection:'舊心得',application:'',prayer:'',question:'',tags:''}]));});
  await page.setViewportSize({width:390,height:844});await page.goto('/?reading=personal-GEN-50');await expect(page.locator('#personal-passage')).toHaveText('創世記 50 章');
  await page.getByLabel('個人心得／領受').fill('私人內容不進入分享');await page.getByRole('button',{name:'儲存當日進度與筆記'}).click();
- await page.getByRole('button',{name:'分享讀經頁'}).click();expect(await page.evaluate(()=>navigator.clipboard.readText())).toContain('reading=personal-GEN-50');expect(await page.evaluate(()=>navigator.clipboard.readText())).not.toContain('私人');
+ expect(await copyFullShare(page)).toContain('reading=personal-GEN-50#shared=');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
  await page.screenshot({path:'test-results/personal-mobile.png',fullPage:true});
  await page.getByRole('button',{name:'我的日記',exact:true}).click();await page.locator('#search').fill('2026-01-01');await expect(page.locator('.entry')).toContainText('舊心得');await expect(page.locator('.entry')).toContainText('舊標記');
@@ -123,4 +131,41 @@ test('manual handoff shows the prompt when clipboard access is denied',async({pa
  const popupPromise=page.waitForEvent('popup');await page.getByRole('button',{name:'詢問',exact:true}).click();const popup=await popupPromise;await popup.waitForLoadState();expect(popup.url()).toBe('https://chatgpt.com/');await popup.close();
  await expect(page.locator('#discussion-status')).toContainText('請手動複製');await expect(page.locator('#gpt-prompt')).toHaveValue(/啟示錄 22 章/);await expect(page.locator('#gpt-prompt')).toHaveValue(/這一章如何帶出盼望/);
  await page.reload();await expect(page.locator('#discussion-thread')).toContainText('這一章如何帶出盼望');
+});
+
+for(const reading of ['matthew-6','personal-PSA-150']) {
+ test(`full snapshot shares every field, drafts and discussion for ${reading} without overwriting the recipient`,async({page,context,browser})=>{
+  await context.grantPermissions(['clipboard-read','clipboard-write']);await page.goto(`/?reading=${reading}`);
+  await page.evaluate(readingId=>{
+   const d=new Date(),date=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+   const record={date,readingId,status:'completed',marks:['珍藏的一句話'],observation:'觀察欄完整分享',interpretation:'理解欄完整分享',reflection:'心得欄完整分享',application:'行動欄完整分享',prayer:'禱告欄完整分享',question:'問題欄完整分享',tags:'標籤完整分享',discussion:[{id:'answered-turn',question:'已回答的問題',answer:'分享的回答 <img src=x onerror=alert(1)>',status:'answered',createdAt:new Date().toISOString()},{id:'draft-turn',question:'還在想的問題',answer:'先前草稿',status:'opened',createdAt:new Date().toISOString()}]};
+   localStorage.setItem('still-journal-v1',JSON.stringify([record,{...record,date:'2020-01-01',reflection:'其他日期不在這份分享中'}]));
+  },reading);
+  await page.reload();await page.getByLabel('觀察',{exact:true}).fill('尚未按儲存的觀察');await page.getByLabel('貼上 GPT 回覆').fill('尚未按儲存的回答草稿');await page.locator('#command').fill('尚未送出的自然輸入');
+  const link=await copyFullShare(page);expect(link.length).toBeLessThanOrEqual(8000);
+  const recipient=await browser.newContext();const friend=await recipient.newPage();
+  await friend.goto('http://127.0.0.1:5173/');await friend.getByLabel('個人心得／領受').fill('接收者原本的私人筆記');await friend.getByRole('button',{name:'儲存今天的日記'}).click();const before=await friend.evaluate(()=>localStorage.getItem('still-journal-v1'));
+  await friend.goto(link);await expect(friend.locator('#shared')).toBeVisible();
+  for(const text of ['尚未按儲存的觀察','理解欄完整分享','心得欄完整分享','行動欄完整分享','禱告欄完整分享','問題欄完整分享','標籤完整分享','珍藏的一句話','已回答的問題','分享的回答 <img src=x onerror=alert(1)>','還在想的問題','尚未按儲存的回答草稿','尚未送出的自然輸入','經文背景','留給今天的兩個問題','禱告引導'])await expect(friend.locator('#shared-content')).toContainText(text);
+  await expect(friend.locator('#shared-meta')).toContainText('已完成');await expect(friend.locator('#shared-content')).not.toContainText('其他日期不在這份分享中');expect(await friend.locator('#shared-content img').count()).toBe(0);
+  expect(await friend.evaluate(()=>localStorage.getItem('still-journal-v1'))).toBe(before);
+  await friend.reload();await expect(friend.locator('#shared-content')).toContainText('心得欄完整分享');
+  await friend.locator('#exit-shared').click();await expect(friend.locator('#shared')).toBeHidden();expect(await friend.evaluate(()=>localStorage.getItem('still-journal-v1'))).toBe(before);await recipient.close();
+  // Sharing a draft must not silently save or replace the author's local entry.
+  const author=JSON.parse(await page.evaluate(()=>localStorage.getItem('still-journal-v1')));expect(author.find(e=>e.date!=='2020-01-01').observation).toBe('觀察欄完整分享');
+ });
+}
+
+test('oversized sharing preserves every field in a standalone HTML document',async({page,context,browser})=>{
+ await context.grantPermissions(['clipboard-read','clipboard-write']);await page.goto('/?reading=matthew-6');
+ const longText='完整內容'.repeat(15000)+'最後一行也必須保留';await page.getByLabel('觀察',{exact:true}).fill(longText);await page.getByLabel('我的禱告').fill('完整禱告不得遺漏');
+ await page.getByRole('button',{name:'分享讀經頁'}).click();await expect(page.locator('#share-state')).toContainText('內容較多');await expect(page.locator('#copy-share')).toBeDisabled();
+ const pending=page.waitForEvent('download');await page.getByRole('button',{name:'下載完整頁面'}).click();const path=await (await pending).path();
+ const fs=await import('node:fs/promises');const html=await fs.readFile(path,'utf8');expect(html).toContain(longText);expect(html).toContain('完整禱告不得遺漏');expect(html).toContain('經文背景');
+ const reader=await browser.newPage();await reader.setContent(html);await expect(reader.locator('body')).toContainText('最後一行也必須保留');await expect(reader.locator('script')).toHaveCount(0);await reader.close();
+});
+
+test('invalid shared payloads do not write to the recipient journal',async({page})=>{
+ await page.goto('/#shared=g1.invalid');await expect(page.locator('#shared')).toBeVisible();await expect(page.locator('#shared-meta')).toContainText('無法開啟這份分享');expect(await page.evaluate(()=>localStorage.getItem('still-journal-v1'))).toBeNull();
+ await page.locator('#exit-shared').click();await expect(page.getByLabel('個人心得／領受')).toBeVisible();
 });
