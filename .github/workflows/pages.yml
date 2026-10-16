@@ -1,4 +1,4 @@
-name: Deploy PB to GitHub Pages
+name: Deploy 靜讀 to GitHub Pages
 on:
   push:
     branches: [main]

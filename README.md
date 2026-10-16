@@ -1,4 +1,4 @@
-# PB
+# 靜讀
 
 繁體中文的每日查經與讀經日記網站，融合「每日經文與查經參考」與「Bible Journal — Shared」的方法。朋友打開相同網址可使用同一套介面；日記各自保存在自己的瀏覽器。
 
@@ -38,6 +38,6 @@ npm test
 
 `npm run build` 產生 `dist/`，可放在任何靜態網站服務。使用相對資源路徑，支援 GitHub Pages 的 `/osb/` 子路徑。
 
-GitHub Pages：在儲存庫 **Settings → Pages → Build and deployment** 選擇 **GitHub Actions**，再到 **Actions → Deploy PB to GitHub Pages → Run workflow** 手動發布；推送更新至 `main` 也會自動發布。此流程不會自動上傳任何讀經日記。部署成功後以 workflow 顯示的實際網址為準。GitHub Pages 是否可用取決於儲存庫可見性及帳號方案。
+GitHub Pages：在儲存庫 **Settings → Pages → Build and deployment** 選擇 **GitHub Actions**，再到 **Actions → Deploy 靜讀 to GitHub Pages → Run workflow** 手動發布；推送更新至 `main` 也會自動發布。此流程不會自動上傳任何讀經日記。部署成功後以 workflow 顯示的實際網址為準。GitHub Pages 是否可用取決於儲存庫可見性及帳號方案。
 
 網站程式碼完成並不表示已經發布。新增登入、雲端同步或 AI 解經，需要另行配置後端、個人資料存取控制與伺服器端金鑰；不要把 AI 金鑰放入靜態網頁。
