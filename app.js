@@ -1,5 +1,5 @@
 import { readings } from './readings.js';
-import { chapterBackground } from './chapter-backgrounds.js';
+import { chapterBackground, validFHLSourceURL } from './chapter-backgrounds.js';
 import { snapshotLink, readSnapshot, snapshotDocument } from './share.js';
 import { books, personalReading } from './bible.js';
 import { gptURL, configLoaded, loadGPTConfig, validDiscussion, discussionPrompt } from './gpt-bridge.js';
@@ -58,7 +58,7 @@ function renderReading() {
  $('#questions').replaceChildren(...r.questions.map(q=>{const li=document.createElement('li');li.textContent=q;return li;}));
  $('#reading-select').value=dailySelected.id;
  const personal=activeView==='personal';
- renderContext(r.context,r.contextSource||'');
+ renderContext(r.context,r.contextSource||'',r.contextURL||'');
  $('#context-status').hidden=true;
  if(personal)backgroundReady=loadPersonalBackground(r);
  $('#personal-picker').hidden=!personal;
@@ -74,9 +74,12 @@ function renderReading() {
  for(const f of fieldNames) $('#journal-form').elements[f].value=current()?.[f]||'';
  dirty=false;updateMeta();renderMarks();$('#gpt-handoff').hidden=true;renderDiscussion();
 }
-function renderContext(text,source='') {
+function renderContext(text,source='',sourceURL='') {
  $('#context').replaceChildren(...text.split(/\n\n+/).filter(Boolean).map(paragraph=>{const p=document.createElement('p');p.textContent=paragraph;return p;}));
  $('#context-source').textContent=source?`資料來源：${source}`:'';$('#context-source').hidden=!source;
+ $('#context-reference').hidden=activeView!=='personal';
+ $('#context-source-link').href=sourceURL||'https://bible.fhl.net/index.html';
+ $('#context-source-link').textContent=sourceURL?'出處：信望愛聖經工具 · 閱讀原文 ↗':'參考網站：信望愛聖經工具 ↗';
 }
 async function loadPersonalBackground(reading) {
  const id=reading.id;$('#context-status').textContent='正在查找本章背景…';$('#context-status').hidden=false;
@@ -84,12 +87,12 @@ async function loadPersonalBackground(reading) {
   const background=await chapterBackground(reading.bookId,reading.chapter);
   if(selected.id!==id||activeView!=='personal')return;
   selected.context=background?background.paragraphs.join('\n\n'):'';
-  selected.contextSource=background?.source||'';
-  renderContext(selected.context,selected.contextSource);
+  selected.contextSource=background?.source||'';selected.contextURL=background?.sourceURL||'';
+  renderContext(selected.context,selected.contextSource,selected.contextURL);
   $('#context-status').textContent=background?'':'本章背景資料尚未提供。';$('#context-status').hidden=!!background;
  }catch{
   if(selected.id!==id||activeView!=='personal')return;
-  selected.context='';selected.contextSource='';renderContext('');$('#context-status').textContent='本章背景資料暫時無法載入，請稍後再試。';$('#context-status').hidden=false;
+  selected.context='';selected.contextSource='';selected.contextURL='';renderContext('');$('#context-status').textContent='本章背景資料暫時無法載入，請稍後再試。';$('#context-status').hidden=false;
  }
 }
 function discussionTurn(turn,editable=false) {
@@ -223,7 +226,7 @@ $('#download-share').onclick=()=>{
 };
 function validSharedSnapshot(snapshot) {
  const r=snapshot?.reading;
- return snapshot?.version===1 && Number.isInteger(snapshot.day) && snapshot.day>=1 && snapshot.day<=10001 && validEntries([snapshot.entry]) && r?.id===snapshot.entry.readingId && ['ref','theme','tag','summary','context','interpretation','prayer','verse'].every(field=>typeof r[field]==='string'&&r[field].length<=100000) && r.verse===resolveReading(r.id).verse && (r.contextSource===undefined || (typeof r.contextSource==='string'&&r.contextSource.length<=1200)) && Array.isArray(r.questions) && r.questions.length===2 && r.questions.every(q=>typeof q==='string'&&q.length<=100000) && ['commandDraft','gptPrompt'].every(field=>typeof snapshot[field]==='string'&&snapshot[field].length<=100000);
+ return snapshot?.version===1 && Number.isInteger(snapshot.day) && snapshot.day>=1 && snapshot.day<=10001 && validEntries([snapshot.entry]) && r?.id===snapshot.entry.readingId && ['ref','theme','tag','summary','context','interpretation','prayer','verse'].every(field=>typeof r[field]==='string'&&r[field].length<=100000) && r.verse===resolveReading(r.id).verse && (r.contextURL===undefined || r.contextURL==='' || validFHLSourceURL(r.contextURL)) && (r.contextSource===undefined || (typeof r.contextSource==='string'&&r.contextSource.length<=1200)) && Array.isArray(r.questions) && r.questions.length===2 && r.questions.every(q=>typeof q==='string'&&q.length<=100000) && ['commandDraft','gptPrompt'].every(field=>typeof snapshot[field]==='string'&&snapshot[field].length<=100000);
 }
 async function openSharedSnapshot() {
  if(!location.hash.startsWith('#shared='))return;

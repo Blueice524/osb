@@ -211,3 +211,12 @@ test('unavailable or invalid background data never masquerades as chapter commen
  await page.route('**/chapter-backgrounds.json',route=>route.fulfill({json:{version:1,chapters:{'GEN.1':{paragraphs:['一','二','三'],source:'測試來源'}}}}));
  await page.goto('/?reading=personal-GEN-1');await expect(page.locator('#context')).toBeEmpty();await expect(page.locator('#context-status')).toContainText('暫時無法載入');await expect(page.locator('#context-source')).toBeHidden();
 });
+
+test('personal backgrounds provide the requested FHL source link and preserve it in shares',async({page,context,browser})=>{
+ await context.grantPermissions(['clipboard-read','clipboard-write']);
+ const sourceURL='https://bible.fhl.net/index.html';
+ await page.route('**/chapter-backgrounds.json',route=>route.fulfill({json:{version:1,chapters:{'GEN.1':{paragraphs:['僅供測試的背景摘要，不是信望愛原文。'],source:'測試用來源標註',sourceURL}}}}));
+ await page.goto('/?reading=personal-GEN-1');await expect(page.locator('#context')).toContainText('僅供測試');await expect(page.locator('#context-source-link')).toHaveAttribute('href',sourceURL);await expect(page.locator('#context-source-link')).toHaveText('出處：信望愛聖經工具 · 閱讀原文 ↗');
+ const link=await copyFullShare(page);const friend=await browser.newPage();await friend.goto(link);await expect(friend.locator('#shared-content a').filter({hasText:'出處：信望愛聖經工具'})).toHaveAttribute('href',sourceURL);await friend.close();
+ await page.locator('#chapter-select').selectOption('2');await expect(page.locator('#context')).toBeEmpty();await expect(page.locator('#context-source-link')).toHaveText('參考網站：信望愛聖經工具 ↗');
+});
