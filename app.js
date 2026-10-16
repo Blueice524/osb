@@ -1,4 +1,5 @@
 import { readings } from './readings.js';
+import { chapterBackground } from './chapter-backgrounds.js';
 import { snapshotLink, readSnapshot, snapshotDocument } from './share.js';
 import { books, personalReading } from './bible.js';
 import { gptURL, configLoaded, loadGPTConfig, validDiscussion, discussionPrompt } from './gpt-bridge.js';
@@ -24,6 +25,7 @@ let personalSelected = personalReading(linkedReading?.id || '') || personalReadi
 let activeView = personalReading(linkedReading?.id || '') ? 'personal' : 'today';
 let selected = activeView === 'personal' ? personalSelected : dailySelected;
 let toastTimer;
+let backgroundReady=Promise.resolve();
 function toast(message) { $('#toast').textContent=message; $('#toast').style.display='block'; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').style.display='none',4500); }
 function validEntries(data) {
  return Array.isArray(data) && data.length <= 10000 && data.every(e=>e && typeof e==='object' && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && typeof e.readingId==='string' && !!resolveReading(e.readingId) && ['started','completed'].includes(e.status) && fieldNames.every(f=>typeof e[f]==='string' && e[f].length<=100000) && Array.isArray(e.marks) && e.marks.length<=1000 && e.marks.every(m=>typeof m==='string' && m.length<=100000) && validDiscussion(e.discussion));
@@ -51,11 +53,14 @@ function renderMarks() {
  for(const mark of current()?.marks||[]) {const div=document.createElement('div');div.className='mark-item';const text=document.createElement('span');text.textContent=`⭐ ${mark}`;const button=document.createElement('button');button.className='text-button';button.textContent='移除';button.setAttribute('aria-label',`移除標記：${mark}`);button.onclick=()=>{const e=collect();e.marks=e.marks.filter(m=>m!==mark);if(storeEntry(e))toast('已移除標記。');};div.append(text,button);$('#marks').append(div);}
 }
 function renderReading() {
- const r=selected;$('#theme-tag').textContent=r.tag;$('#passage').textContent=r.ref;$('#reading-title').textContent=r.theme;$('#summary').textContent=r.summary;$('#context').textContent=r.context;$('#interpretation').textContent=r.interpretation;$('#prayer').textContent=r.prayer;
+ const r=selected;$('#theme-tag').textContent=r.tag;$('#passage').textContent=r.ref;$('#reading-title').textContent=r.theme;$('#summary').textContent=r.summary;$('#interpretation').textContent=r.interpretation;$('#prayer').textContent=r.prayer;
  $('#bible-link').href=`https://www.bible.com/zh-TW/bible/40/${r.verse}.CNV`;
  $('#questions').replaceChildren(...r.questions.map(q=>{const li=document.createElement('li');li.textContent=q;return li;}));
  $('#reading-select').value=dailySelected.id;
  const personal=activeView==='personal';
+ renderContext(r.context,r.contextSource||'');
+ $('#context-status').hidden=true;
+ if(personal)backgroundReady=loadPersonalBackground(r);
  $('#personal-picker').hidden=!personal;
  $('.verse-card').hidden=personal;
  $('.selection').hidden=personal;
@@ -68,6 +73,24 @@ function renderReading() {
  }
  for(const f of fieldNames) $('#journal-form').elements[f].value=current()?.[f]||'';
  dirty=false;updateMeta();renderMarks();$('#gpt-handoff').hidden=true;renderDiscussion();
+}
+function renderContext(text,source='') {
+ $('#context').replaceChildren(...text.split(/\n\n+/).filter(Boolean).map(paragraph=>{const p=document.createElement('p');p.textContent=paragraph;return p;}));
+ $('#context-source').textContent=source?`資料來源：${source}`:'';$('#context-source').hidden=!source;
+}
+async function loadPersonalBackground(reading) {
+ const id=reading.id;$('#context-status').textContent='正在查找本章背景…';$('#context-status').hidden=false;
+ try {
+  const background=await chapterBackground(reading.bookId,reading.chapter);
+  if(selected.id!==id||activeView!=='personal')return;
+  selected.context=background?background.paragraphs.join('\n\n'):'';
+  selected.contextSource=background?.source||'';
+  renderContext(selected.context,selected.contextSource);
+  $('#context-status').textContent=background?'':'本章背景資料尚未提供。';$('#context-status').hidden=!!background;
+ }catch{
+  if(selected.id!==id||activeView!=='personal')return;
+  selected.context='';selected.contextSource='';renderContext('');$('#context-status').textContent='本章背景資料暫時無法載入，請稍後再試。';$('#context-status').hidden=false;
+ }
 }
 function discussionTurn(turn,editable=false) {
  const article=document.createElement('article');article.className='discussion-turn';
@@ -180,6 +203,7 @@ $('#send-command').onclick=command;$('#command').onkeydown=e=>{if(e.key==='Enter
  document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>showView(b.dataset.view));$('#search').oninput=renderEntries;
 let shareSnapshot=null,shareURL='',shareGeneration=0;
 $('#share').onclick=async()=>{
+ if(activeView==='personal'){let pending;do{pending=backgroundReady;await pending;}while(activeView==='personal'&&pending!==backgroundReady);}
  const generation=++shareGeneration;
  shareSnapshot={version:1,reading:{...selected},entry:collect(),day:current()?countDays():countDays()+1,commandDraft:$('#command').value,gptPrompt:$('#gpt-handoff').hidden?'':$('#gpt-prompt').value};
  shareURL='';$('#share-url').value='';$('#share-url-label').hidden=true;$('#copy-share').disabled=true;$('#send-share').hidden=true;$('#share-state').textContent='正在準備完整內容…';$('#share-dialog').showModal();
@@ -199,7 +223,7 @@ $('#download-share').onclick=()=>{
 };
 function validSharedSnapshot(snapshot) {
  const r=snapshot?.reading;
- return snapshot?.version===1 && Number.isInteger(snapshot.day) && snapshot.day>=1 && snapshot.day<=10001 && validEntries([snapshot.entry]) && r?.id===snapshot.entry.readingId && ['ref','theme','tag','summary','context','interpretation','prayer','verse'].every(field=>typeof r[field]==='string'&&r[field].length<=100000) && r.verse===resolveReading(r.id).verse && Array.isArray(r.questions) && r.questions.length===2 && r.questions.every(q=>typeof q==='string'&&q.length<=100000) && ['commandDraft','gptPrompt'].every(field=>typeof snapshot[field]==='string'&&snapshot[field].length<=100000);
+ return snapshot?.version===1 && Number.isInteger(snapshot.day) && snapshot.day>=1 && snapshot.day<=10001 && validEntries([snapshot.entry]) && r?.id===snapshot.entry.readingId && ['ref','theme','tag','summary','context','interpretation','prayer','verse'].every(field=>typeof r[field]==='string'&&r[field].length<=100000) && r.verse===resolveReading(r.id).verse && (r.contextSource===undefined || (typeof r.contextSource==='string'&&r.contextSource.length<=1200)) && Array.isArray(r.questions) && r.questions.length===2 && r.questions.every(q=>typeof q==='string'&&q.length<=100000) && ['commandDraft','gptPrompt'].every(field=>typeof snapshot[field]==='string'&&snapshot[field].length<=100000);
 }
 async function openSharedSnapshot() {
  if(!location.hash.startsWith('#shared='))return;

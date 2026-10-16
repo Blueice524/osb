@@ -8,5 +8,5 @@ export function personalReading(id) {
  if(!match)return null;
  const book=books.find(b=>b.id===match[1]),chapter=Number(match[2]);
  if(!book||chapter>book.chapters)return null;
- return {id,book:book.name,bookId:book.id,chapter,ref:`${book.name} ${chapter} ${book.id==='PSA'?'篇':'章'}`,verse:`${book.id}.${chapter}`,tag:'個人讀經進度',theme:'按自己的步伐，讀進經文。',summary:'這是你選擇的個人讀經進度，請閱讀整章後，在右側寫下觀察、心得與禱告。',context:'先閱讀本章的前後文，留意作者、對象、文體與段落的關係。下列是通用查經方法，並非這一章的專屬解說。',interpretation:'分開記下經文明說的內容、你的理解，以及還需要查證的問題；不要急著把個人經驗當作經文的原意。',questions:['本章哪些人物、事件、重複的詞或轉折值得留意？先寫下你從經文直接看到的內容。','在理解上下文後，今天可以實踐哪一件小事？把自己的反思寫在右側，不必勉強套用。'],prayer:'禱告引導：用自己的話回應今天讀到的內容，也可以把尚未理解的問題帶到神面前。'};
+ return {id,book:book.name,bookId:book.id,chapter,ref:`${book.name} ${chapter} ${book.id==='PSA'?'篇':'章'}`,verse:`${book.id}.${chapter}`,tag:'個人讀經進度',theme:'按自己的步伐，讀進經文。',summary:'這是你選擇的個人讀經進度，請閱讀整章後，在右側寫下觀察、心得與禱告。',context:'',interpretation:'分開記下經文明說的內容、你的理解，以及還需要查證的問題；不要急著把個人經驗當作經文的原意。',questions:['本章哪些人物、事件、重複的詞或轉折值得留意？先寫下你從經文直接看到的內容。','在理解上下文後，今天可以實踐哪一件小事？把自己的反思寫在右側，不必勉強套用。'],prayer:'禱告引導：用自己的話回應今天讀到的內容，也可以把尚未理解的問題帶到神面前。'};
 }

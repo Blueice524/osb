@@ -187,3 +187,27 @@ for(const reading of ['matthew-6','personal-GEN-1']) {
   await friend.close();
  });
 }
+
+test('personal chapter backgrounds show only the selected chapter, one or two sourced paragraphs, and share the summary',async({page,context,browser})=>{
+ await context.grantPermissions(['clipboard-read','clipboard-write']);
+ await page.route('**/chapter-backgrounds.json',route=>route.fulfill({json:{version:1,chapters:{'GEN.1':{paragraphs:['測試資料：創世記第一章背景摘要。','測試資料：第一章的文學脈絡。'],source:'測試背景資料，第 1 頁'},'GEN.2':{paragraphs:['測試資料：創世記第二章獨立背景。'],source:'測試背景資料，第 2 頁'}}}}));
+ await page.goto('/?reading=personal-GEN-1');await expect(page.locator('#context p')).toHaveCount(2);await expect(page.locator('#context')).toContainText('第一章的文學脈絡');await expect(page.locator('#context-source')).toHaveText('資料來源：測試背景資料，第 1 頁');
+ await page.getByLabel('個人心得／領受').fill('背景載入不應該改動這段心得');
+ await page.locator('#chapter-select').selectOption('2');await expect(page.locator('#context p')).toHaveCount(1);await expect(page.locator('#context')).toHaveText('測試資料：創世記第二章獨立背景。');await expect(page.locator('#context')).not.toContainText('第一章');
+ const link=await copyFullShare(page);const friend=await browser.newPage();await friend.goto(link);await expect(friend.locator('#shared-content')).toContainText('創世記第二章獨立背景');await expect(friend.locator('#shared-content')).toContainText('測試背景資料，第 2 頁');await friend.close();
+ await page.locator('#chapter-select').selectOption('3');await expect(page.locator('#context')).toBeEmpty();await expect(page.locator('#context-source')).toBeHidden();await expect(page.locator('#context-status')).toHaveText('本章背景資料尚未提供。');
+ await page.getByRole('button',{name:'每日靈糧',exact:true}).click();await expect(page.locator('#context')).not.toBeEmpty();await expect(page.locator('#context-status')).toBeHidden();
+});
+
+test('delayed background loading preserves notes and never inserts an earlier chapter into the latest selection',async({page})=>{
+ let release;const gate=new Promise(resolve=>release=resolve);
+ await page.route('**/chapter-backgrounds.json',async route=>{await gate;await route.fulfill({json:{version:1,chapters:{'GEN.1':{paragraphs:['第一章背景'],source:'測試來源'},'GEN.2':{paragraphs:['第二章背景'],source:'測試來源'}}}});});
+ await page.goto('/?reading=personal-GEN-1');await expect(page.locator('#context-status')).toContainText('查找');await page.getByLabel('個人心得／領受').fill('等待時輸入的第一章心得');await page.locator('#chapter-select').selectOption('2');await page.getByLabel('個人心得／領受').fill('等待時輸入的第二章心得');release();
+ await expect(page.locator('#context')).toHaveText('第二章背景');await expect(page.getByLabel('個人心得／領受')).toHaveValue('等待時輸入的第二章心得');
+ await page.locator('#chapter-select').selectOption('1');await expect(page.getByLabel('個人心得／領受')).toHaveValue('等待時輸入的第一章心得');await expect(page.locator('#context')).toHaveText('第一章背景');
+});
+
+test('unavailable or invalid background data never masquerades as chapter commentary',async({page})=>{
+ await page.route('**/chapter-backgrounds.json',route=>route.fulfill({json:{version:1,chapters:{'GEN.1':{paragraphs:['一','二','三'],source:'測試來源'}}}}));
+ await page.goto('/?reading=personal-GEN-1');await expect(page.locator('#context')).toBeEmpty();await expect(page.locator('#context-status')).toContainText('暫時無法載入');await expect(page.locator('#context-source')).toBeHidden();
+});
