@@ -85,3 +85,42 @@ test('failed save prevents changing personal progress and keeps the unsaved refl
  await page.goto('/?reading=personal-GEN-1');await page.getByLabel('個人心得／領受').fill('這段未儲存的文字需要保留');await page.locator('#book-select').selectOption('EXO');
  await expect(page.locator('#book-select')).toHaveValue('GEN');await expect(page.locator('#personal-passage')).toHaveText('創世記 1 章');await expect(page.getByLabel('個人心得／領受')).toHaveValue('這段未儲存的文字需要保留');await expect(page.locator('#session-state')).toContainText('尚未儲存');await expect(page.locator('#toast')).toContainText('儲存失敗');
 });
+
+for (const [view,reading,passage] of [['daily','matthew-6','馬太福音 6:25–34'],['personal','personal-GEN-1','創世記 1 章']]) {
+ test(`${view} GPT handoff copies only relevant context, saves replies, searches and restores backups`,async({page,context})=>{
+  const target='https://chatgpt.com/g/g-study-test';
+  await context.grantPermissions(['clipboard-read','clipboard-write']);
+  await page.route('**/gpt-config.json',route=>route.fulfill({json:{gpt_url:target}}));
+  await context.route('https://chatgpt.com/**',route=>route.fulfill({body:'Test GPT destination'}));
+  await page.goto(`/?reading=${reading}`);
+  await page.getByLabel('個人心得／領受').fill('不要把這段私人心得傳給GPT');await page.getByLabel('我的禱告').fill('私人的禱告');
+  await page.getByLabel('還想問的問題').fill('如何理解這章的上下文？');
+  const popupPromise=page.waitForEvent('popup');await page.getByRole('button',{name:'詢問',exact:true}).click();const popup=await popupPromise;await popup.waitForLoadState();expect(popup.url()).toBe(target);await popup.close();
+  await expect(page.locator('#discussion-status')).toContainText('問題已複製');
+  let prompt=await page.evaluate(()=>navigator.clipboard.readText());expect(prompt).toContain(passage);expect(prompt).toContain('如何理解這章的上下文');expect(prompt).not.toContain('私人心得');expect(prompt).not.toContain('私人的禱告');
+  await page.getByLabel('貼上 GPT 回覆').fill('先看文體與上下文，不要脫離段落。<script>alert(1)</script>');await page.getByRole('button',{name:'儲存回覆'}).click();
+  await page.reload();await expect(page.locator('#discussion-thread')).toContainText('先看文體與上下文');
+  await page.getByLabel('還想問的問題').fill('那應該怎樣應用？');const secondPopup=page.waitForEvent('popup');await page.getByRole('button',{name:'詢問',exact:true}).click();await (await secondPopup).close();
+  await expect(page.locator('#discussion-status')).toContainText('問題已複製');prompt=await page.evaluate(()=>navigator.clipboard.readText());expect(prompt).toContain('先看文體與上下文');expect(prompt).toContain('那應該怎樣應用');
+  await page.getByLabel('貼上 GPT 回覆').fill('尚未確認的回覆草稿');await page.getByRole('button',{name:'我的日記',exact:true}).click();
+  await page.locator('#search').fill('文體與上下文');await expect(page.locator('.entry')).toHaveCount(1);await expect(page.locator('.entry')).toContainText('GPT 回覆（由你貼回）');
+  const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'匯出備份'}).click();const path=await (await downloadPromise).path();
+  await page.evaluate(()=>localStorage.clear());await page.reload();await page.getByRole('button',{name:'我的日記',exact:true}).click();await page.locator('#import').setInputFiles(path);await page.locator('#search').fill('文體與上下文');await expect(page.locator('.entry')).toContainText('先看文體與上下文');
+  await page.getByRole('button',{name:view==='daily'?'每日靈糧':'個人讀經進度',exact:true}).click();await expect(page.getByLabel('貼上 GPT 回覆')).toHaveValue('尚未確認的回覆草稿');
+ });
+}
+test('plugin identifiers use an explicitly manual ChatGPT handoff rather than a fabricated GPT URL',async({page})=>{
+ await page.route('**/gpt-config.json',route=>route.fulfill({json:{gpt_url:'plugin://gpt-f875f4e5f25b9633318d3546b0abdb7c@openai-curated-remote'}}));
+ await page.goto('/');await expect(page.locator('#discussion-notice')).toContainText('自行選用');await expect(page.getByRole('button',{name:'詢問',exact:true})).toBeEnabled();await expect(page.locator('#gpt-direct-link')).toHaveAttribute('href','https://chatgpt.com/');
+ await page.getByLabel('還想問的問題').fill('未連接仍可存下這個問題');await page.getByRole('button',{name:'儲存今天的日記'}).click();await page.reload();await expect(page.getByLabel('還想問的問題')).toHaveValue('未連接仍可存下這個問題');
+});
+
+test('manual handoff shows the prompt when clipboard access is denied',async({page,context})=>{
+ await page.route('**/gpt-config.json',route=>route.fulfill({json:{gpt_url:''}}));
+ await context.route('https://chatgpt.com/**',route=>route.fulfill({body:'Test ChatGPT destination'}));
+ await page.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:async()=>{throw new Error('denied');}}});});
+ await page.goto('/?reading=personal-REV-22');await page.getByLabel('還想問的問題').fill('這一章如何帶出盼望？');
+ const popupPromise=page.waitForEvent('popup');await page.getByRole('button',{name:'詢問',exact:true}).click();const popup=await popupPromise;await popup.waitForLoadState();expect(popup.url()).toBe('https://chatgpt.com/');await popup.close();
+ await expect(page.locator('#discussion-status')).toContainText('請手動複製');await expect(page.locator('#gpt-prompt')).toHaveValue(/啟示錄 22 章/);await expect(page.locator('#gpt-prompt')).toHaveValue(/這一章如何帶出盼望/);
+ await page.reload();await expect(page.locator('#discussion-thread')).toContainText('這一章如何帶出盼望');
+});
