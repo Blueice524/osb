@@ -1,4 +1,6 @@
 import { readings } from './readings.js';
+import { books, personalReading } from './bible.js';
+const resolveReading = id => readings.find(r=>r.id===id) || personalReading(id);
 const $ = s => document.querySelector(s);
 const key = 'still-journal-v1';
 const fieldNames = ['observation','interpretation','reflection','application','prayer','question','tags'];
@@ -12,11 +14,15 @@ try {
  entries = stored;
 } catch { loadError = true; storageAvailable = false; }
 const dayIndex = Math.floor(Date.UTC(...today.split('-').map((v,i)=>i===1?Number(v)-1:Number(v)))/86400000);
-let selected = readings.find(r=>r.id===new URL(location.href).searchParams.get('reading')) || readings[dayIndex % readings.length];
+const linkedReading = resolveReading(new URL(location.href).searchParams.get('reading') || '');
+let dailySelected = linkedReading && !personalReading(linkedReading.id) ? linkedReading : readings[dayIndex % readings.length];
+let personalSelected = personalReading(linkedReading?.id || '') || personalReading([...entries].reverse().find(e=>personalReading(e.readingId))?.readingId || 'personal-GEN-1');
+let activeView = personalReading(linkedReading?.id || '') ? 'personal' : 'today';
+let selected = activeView === 'personal' ? personalSelected : dailySelected;
 let toastTimer;
 function toast(message) { $('#toast').textContent=message; $('#toast').style.display='block'; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').style.display='none',4500); }
 function validEntries(data) {
- return Array.isArray(data) && data.length <= 10000 && data.every(e=>e && typeof e==='object' && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && readings.some(r=>r.id===e.readingId) && ['started','completed'].includes(e.status) && fieldNames.every(f=>typeof e[f]==='string' && e[f].length<=100000) && Array.isArray(e.marks) && e.marks.length<=1000 && e.marks.every(m=>typeof m==='string' && m.length<=100000));
+ return Array.isArray(data) && data.length <= 10000 && data.every(e=>e && typeof e==='object' && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && typeof e.readingId==='string' && !!resolveReading(e.readingId) && ['started','completed'].includes(e.status) && fieldNames.every(f=>typeof e[f]==='string' && e[f].length<=100000) && Array.isArray(e.marks) && e.marks.length<=1000 && e.marks.every(m=>typeof m==='string' && m.length<=100000));
 }
 function persist(next) {
  if(!storageAvailable) { toast('無法使用本機儲存，尚未儲存。請先匯出備份，並檢查瀏覽器設定。'); return false; }
@@ -40,25 +46,52 @@ function renderReading() {
  const r=selected;$('#theme-tag').textContent=r.tag;$('#passage').textContent=r.ref;$('#reading-title').textContent=r.theme;$('#summary').textContent=r.summary;$('#context').textContent=r.context;$('#interpretation').textContent=r.interpretation;$('#prayer').textContent=r.prayer;
  $('#bible-link').href=`https://www.bible.com/zh-TW/bible/40/${r.verse}.CNV`;
  $('#questions').replaceChildren(...r.questions.map(q=>{const li=document.createElement('li');li.textContent=q;return li;}));
- $('#reading-select').value=r.id;
+ $('#reading-select').value=dailySelected.id;
+ const personal=activeView==='personal';
+ $('#personal-picker').hidden=!personal;
+ $('.verse-card').hidden=personal;
+ $('.selection').hidden=personal;
+ if(personal){
+  $('#book-select').value=r.bookId;
+  renderChapters(r.bookId,r.chapter);
+  $('#personal-date').textContent=today;
+  $('#personal-passage').textContent=r.ref;
+  $('#personal-bible-link').href=`https://www.bible.com/zh-TW/bible/40/${r.verse}.CNV`;
+ }
  for(const f of fieldNames) $('#journal-form').elements[f].value=current()?.[f]||'';
  dirty=false;updateMeta();renderMarks();
 }
 function showView(view) {
- if(view!=='today'&&dirty) { if(!storeEntry(collect()))return; }
- document.querySelectorAll('.view').forEach(e=>e.hidden=e.id!==view);
+ if(dirty && !storeEntry(collect()))return;
+ const readingView=view==='today'||view==='personal';
+ activeView=view;
+ document.querySelectorAll('.view').forEach(e=>e.hidden=e.id!==(readingView?'today':view));
  document.querySelectorAll('.nav').forEach(e=>e.classList.toggle('active',e.dataset.view===view));
+ if(readingView){selected=view==='personal'?personalSelected:dailySelected;renderReading();const url=new URL(location.href);url.searchParams.set('reading',selected.id);history.replaceState(null,'',url);}
  if(view==='journal')renderEntries();if(view==='progress')renderStats();
+}
+function renderChapters(bookId,chapter=1) {
+ const book=books.find(b=>b.id===bookId);
+ $('#chapter-select').replaceChildren(...Array.from({length:book.chapters},(_,i)=>{const o=document.createElement('option');o.value=i+1;o.textContent=`第 ${i+1} ${bookId==='PSA'?'篇':'章'}`;return o;}));
+ $('#chapter-select').value=chapter;
+}
+function changePersonal(bookId,chapter) {
+ if(dirty&&!storeEntry(collect())){$('#book-select').value=selected.bookId;renderChapters(selected.bookId,selected.chapter);return;}
+ personalSelected=personalReading(`personal-${bookId}-${chapter}`);selected=personalSelected;
+ renderReading();
+ // Selecting a chapter is itself a progress record, even before a reflection is written.
+ if(storeEntry(collect()))toast(`已保留當日進度：${selected.ref}`);
+ const url=new URL(location.href);url.searchParams.set('reading',selected.id);history.replaceState(null,'',url);
 }
 function renderEntries() {
  const search=$('#search').value.trim().toLocaleLowerCase();
- const visible=entries.filter(e=>[readings.find(r=>r.id===e.readingId).ref,e.date,...fieldNames.map(f=>e[f]),...e.marks].join(' ').toLocaleLowerCase().includes(search)).sort((a,b)=>b.date.localeCompare(a.date));
+ const visible=entries.filter(e=>[resolveReading(e.readingId).ref,e.date,...fieldNames.map(f=>e[f]),...e.marks].join(' ').toLocaleLowerCase().includes(search)).sort((a,b)=>b.date.localeCompare(a.date));
  const root=$('#entries');root.replaceChildren();
  if(!visible.length){const p=document.createElement('p');p.className='empty';p.textContent=search?'還沒有符合的筆記，試試其他關鍵字。':'第一篇日記，從今天開始。到「每日靈糧」寫下你的第一句話。';root.append(p);}
  for(const e of visible) {
   const article=document.createElement('article');article.className='entry';
-  const meta=document.createElement('p');meta.className='entry-meta';meta.textContent=`${e.date} · ${e.status==='completed'?'✓ 已完成':'進行中'}`;
-  const heading=document.createElement('h2');heading.textContent=readings.find(r=>r.id===e.readingId).ref;article.append(meta,heading);
+  const meta=document.createElement('p');meta.className='entry-meta';meta.textContent=`${e.date} · ${personalReading(e.readingId)?'個人讀經進度':'每日靈糧'} · ${e.status==='completed'?'✓ 已完成':'進行中'}`;
+  const heading=document.createElement('h2');heading.textContent=resolveReading(e.readingId).ref;article.append(meta,heading);
   for(const f of fieldNames)if(e[f]){const title=document.createElement('h3');title.textContent=labels[f];const text=document.createElement('p');text.textContent=e[f];article.append(title,text);}
   for(const mark of e.marks){const p=document.createElement('p');p.textContent=`⭐ ${mark}`;article.append(p);}
   const remove=document.createElement('button');remove.className='text-button';remove.textContent='刪除這篇日記';remove.onclick=()=>{if(confirm('確定刪除這篇日記？建議先匯出備份。')){if(persist(entries.filter(x=>x!==e))){renderEntries();renderReading();toast('已刪除日記。');}}};article.append(remove);root.append(article);
@@ -82,12 +115,20 @@ function command() {
 }
 $('#today-date').textContent=new Intl.DateTimeFormat('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'}).format(new Date());
 $('#reading-select').replaceChildren(...readings.map(r=>{const o=document.createElement('option');o.value=r.id;o.textContent=`${r.ref} · ${r.tag}`;return o;}));
-$('#reading-select').onchange=()=>{if(dirty&&!storeEntry(collect())){$('#reading-select').value=selected.id;return;}selected=readings.find(r=>r.id===$('#reading-select').value);const url=new URL(location.href);url.searchParams.set('reading',selected.id);history.replaceState(null,'',url);renderReading();};
+$('#reading-select').onchange=()=>{if(dirty&&!storeEntry(collect())){$('#reading-select').value=selected.id;return;}dailySelected=readings.find(r=>r.id===$('#reading-select').value);selected=dailySelected;const url=new URL(location.href);url.searchParams.set('reading',selected.id);history.replaceState(null,'',url);renderReading();};
+for(const testament of ['舊約','新約']) {
+ const group=document.createElement('optgroup');group.label=testament;
+ for(const book of books.filter(b=>b.testament===testament)){const option=document.createElement('option');option.value=book.id;option.textContent=`${book.name}（${book.chapters} ${book.id==='PSA'?'篇':'章'}）`;group.append(option);}
+ $('#book-select').append(group);
+}
+$('#book-select').onchange=()=>changePersonal($('#book-select').value,1);
+$('#chapter-select').onchange=()=>changePersonal($('#book-select').value,Number($('#chapter-select').value));
+$('#save-personal').onclick=()=>save();
 $('#journal-form').onsubmit=e=>{e.preventDefault();save();};$('#journal-form').oninput=()=>{dirty=true;updateMeta();};$('#complete').onclick=()=>save(true);
 $('#send-command').onclick=command;$('#command').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();command();}};
  document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>showView(b.dataset.view));$('#search').oninput=renderEntries;
 $('#share').onclick=async()=>{const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('reading',selected.id);try{if(navigator.share)await navigator.share({title:`靜讀｜${selected.ref}`,url:url.href});else{await navigator.clipboard.writeText(url.href);toast('讀經連結已複製，不含你的私人筆記。');}}catch(e){if(e.name!=='AbortError')prompt('複製讀經連結（不含筆記）：',url.href);}};
 $('#export').onclick=()=>{const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),entries},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`still-journal-${today}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('已產生備份檔案，請妥善保存。');};
-$('#import').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>10*1024*1024)throw new Error();const data=JSON.parse(await file.text());if(data.version!==1||!validEntries(data.entries))throw new Error();const existing=new Set(entries.map(x=>`${x.date}/${x.readingId}`));const additions=data.entries.filter(x=>!existing.has(`${x.date}/${x.readingId}`));const unique=new Map(additions.map(x=>[`${x.date}/${x.readingId}`,{date:x.date,readingId:x.readingId,status:x.status,marks:[...x.marks],...Object.fromEntries(fieldNames.map(f=>[f,x[f]]))}]));if(persist([...entries,...unique.values()])){renderEntries();renderReading();toast(`已匯入 ${unique.size} 篇日記，現有同日同經文的筆記保留原樣。`);}}catch{toast('匯入失敗：請選擇有效的 靜讀 JSON 備份（上限 10 MB）。');}e.target.value='';};
+$('#import').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>10*1024*1024)throw new Error();const data=JSON.parse(await file.text());if(data.version!==1||!validEntries(data.entries))throw new Error();const existing=new Set(entries.map(x=>`${x.date}/${x.readingId}`));const additions=data.entries.filter(x=>!existing.has(`${x.date}/${x.readingId}`));const unique=new Map(additions.map(x=>[`${x.date}/${x.readingId}`,{date:x.date,readingId:x.readingId,status:x.status,marks:[...x.marks],...Object.fromEntries(fieldNames.map(f=>[f,x[f]]))}]));if(persist([...entries,...unique.values()])){renderEntries();renderReading();toast(`已匯入 ${unique.size} 篇日記，現有同日同經文的筆記保留原樣。`);}}catch{toast('匯入失敗：請選擇有效的靜讀 JSON 備份（上限 10 MB）。');}e.target.value='';};
 $('#about').onclick=()=>$('#about-dialog').showModal();$('#close-about').onclick=()=>$('#about-dialog').close();window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
-renderReading();if(loadError)toast('現有筆記無法讀取或瀏覽器不允許儲存。為保護資料，已停止寫入；請檢查瀏覽器儲存設定。');
+showView(activeView);if(loadError)toast('現有筆記無法讀取或瀏覽器不允許儲存。為保護資料，已停止寫入；請檢查瀏覽器儲存設定。');
